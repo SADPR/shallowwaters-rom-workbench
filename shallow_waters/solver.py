@@ -87,18 +87,6 @@ def limited_slope(dL, dR, limiter="minmod"):
     raise ValueError(f"Unknown limiter='{limiter}'. Use 'minmod' or 'mc'.")
 
 
-def compute_dt(U, g, cfl, dx, dy, h_floor):
-    """
-    CFL time step from maximum wave speeds.
-    """
-    h, u, v = primitive(U, h_floor=h_floor)
-    c = np.sqrt(float(g) * np.maximum(h, 0.0))
-    sx = np.max(np.abs(u) + c)
-    sy = np.max(np.abs(v) + c)
-    smax = max(float(sx), float(sy), 1e-14)
-    return float(cfl) * min(float(dx), float(dy)) / smax
-
-
 def fill_x_boundary(Ug, U, side, bc_type):
     """
     Fill x-side ghost cells.
@@ -1370,7 +1358,7 @@ def simulate_with_sampling(
     h_floor,
     bc,
     time_integrator="explicit_rk2",
-    dt_multiplier=1.0,
+    fixed_dt=None,
     implicit_nonlinear_solver="newton_krylov",
     implicit_max_iter=25,
     implicit_tol=1e-8,
@@ -1443,14 +1431,33 @@ def simulate_with_sampling(
             f"Unknown riemann_flux='{riemann_flux}'. Use 'hll' or 'hllc'."
         )
 
-    dt_multiplier = float(dt_multiplier)
-    if dt_multiplier <= 0.0:
-        raise ValueError(f"dt_multiplier must be > 0, got {dt_multiplier}.")
+    if fixed_dt is None:
+        raise ValueError(
+            "fixed_dt must be provided. Variable dt mode has been removed."
+        )
+    fixed_dt = float(fixed_dt)
+    if fixed_dt <= 0.0:
+        raise ValueError(f"fixed_dt must be > 0, got {fixed_dt}.")
+    n_fixed_steps = int(np.rint(t_final / fixed_dt))
+    if n_fixed_steps < 1:
+        raise ValueError(
+            f"fixed_dt={fixed_dt} is too large for t_final={t_final}."
+        )
+    tf_check = n_fixed_steps * fixed_dt
+    tol_tf = 1e-12 * max(abs(t_final), 1.0)
+    if abs(tf_check - t_final) > tol_tf:
+        raise ValueError(
+            f"fixed_dt={fixed_dt:.12e} does not divide t_final={t_final:.12e}. "
+            f"Closest integer step count is {n_fixed_steps}, giving "
+            f"n*fixed_dt={tf_check:.12e}. "
+            "Choose fixed_dt so t_final/fixed_dt is an integer."
+        )
 
     if verbose:
         print(
             f"[HDM] Starting integration | method={time_integrator} | "
             f"t_final={t_final:.6f} | target_samples={nt} | "
+            f"fixed_dt={fixed_dt:.3e} | "
             f"implicit_solver={implicit_nonlinear_solver} | "
             f"limiter={limiter} | flux={riemann_flux}"
         )
@@ -1464,10 +1471,9 @@ def simulate_with_sampling(
     dt_prev = None
 
     while t < t_final - 1e-14:
-        dt = compute_dt(U, g=g, cfl=cfl, dx=dx, dy=dy, h_floor=h_floor)
-        dt *= dt_multiplier
-        if t + dt > t_final:
-            dt = t_final - t
+        if step >= int(n_fixed_steps):
+            break
+        dt = fixed_dt
 
         U_prev = U
         t_prev = t
@@ -1586,7 +1592,7 @@ def simulate_with_sampling(
                     f"step={step + 1}, t={t_prev:.6f}, dt={dt:.3e}, "
                     f"{residual_name}={step_res:.3e}, solver={implicit_nonlinear_solver}. "
                     "Try increasing implicit_max_iter, relaxing implicit_tol, "
-                    "reducing dt_multiplier, or switching implicit_nonlinear_solver."
+                    "reducing fixed_dt, or switching implicit_nonlinear_solver."
                 )
 
         t = t_prev + dt
@@ -1652,7 +1658,7 @@ def simulate_with_sampling(
         "implicit_nonlinear_solver": implicit_nonlinear_solver,
         "limiter": limiter,
         "riemann_flux": riemann_flux,
-        "dt_multiplier": float(dt_multiplier),
+        "fixed_dt": float(fixed_dt),
         "implicit_max_iter": int(implicit_max_iter),
         "implicit_tol": float(implicit_tol),
         "implicit_relaxation": float(implicit_relaxation),

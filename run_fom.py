@@ -14,7 +14,7 @@ import numpy as np
 
 from shallow_waters.config import (
     CFL,
-    DT_MULTIPLIER,
+    FIXED_DT,
     G,
     H_FLOOR,
     IMPLICIT_MAX_ITER,
@@ -73,7 +73,7 @@ def main(
     movie3d_elev=28.0,
     movie3d_azim=-130.0,
     time_integrator=TIME_INTEGRATOR,
-    dt_multiplier=DT_MULTIPLIER,
+    fixed_dt=FIXED_DT,
     implicit_nonlinear_solver=IMPLICIT_NONLINEAR_SOLVER,
     implicit_max_iter=IMPLICIT_MAX_ITER,
     implicit_tol=IMPLICIT_TOL,
@@ -83,7 +83,7 @@ def main(
     riemann_flux=RIEMANN_FLUX,
     force_recompute=False,
     solver_verbose=True,
-    solver_print_every=10,
+    solver_print_every=1,
 ):
     os.makedirs(results_dir, exist_ok=True)
     os.makedirs(snap_folder, exist_ok=True)
@@ -105,7 +105,7 @@ def main(
         snap_folder=snap_folder,
         force_recompute=force_recompute,
         time_integrator=time_integrator,
-        dt_multiplier=dt_multiplier,
+        fixed_dt=fixed_dt,
         implicit_nonlinear_solver=implicit_nonlinear_solver,
         implicit_max_iter=implicit_max_iter,
         implicit_tol=implicit_tol,
@@ -383,7 +383,7 @@ def main(
                     ),
                     ("limiter", case.get("limiter", limiter)),
                     ("riemann_flux", case.get("riemann_flux", riemann_flux)),
-                    ("dt_multiplier", case.get("dt_multiplier", dt_multiplier)),
+                    ("fixed_dt", case.get("fixed_dt", fixed_dt)),
                     ("implicit_max_iter", case.get("implicit_max_iter", implicit_max_iter)),
                     ("implicit_tol", case.get("implicit_tol", implicit_tol)),
                     ("implicit_relaxation", case.get("implicit_relaxation", implicit_relaxation)),

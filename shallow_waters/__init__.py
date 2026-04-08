@@ -5,7 +5,7 @@ Utilities for the shallow-water ROM workbench scaffold.
 from .config import (
     BC_TWO_BUMPS,
     CFL,
-    DT_MULTIPLIER,
+    FIXED_DT,
     G,
     H_FLOOR,
     IMPLICIT_MAX_ITER,
@@ -56,7 +56,7 @@ from .plotting import (
 __all__ = [
     "BC_TWO_BUMPS",
     "CFL",
-    "DT_MULTIPLIER",
+    "FIXED_DT",
     "G",
     "H_FLOOR",
     "IMPLICIT_MAX_ITER",

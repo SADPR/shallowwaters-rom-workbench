@@ -19,7 +19,7 @@ import numpy as np
 
 from shallow_waters.config import (
     CFL,
-    DT_MULTIPLIER,
+    FIXED_DT,
     G,
     H_FLOOR,
     IMPLICIT_MAX_ITER,
@@ -123,7 +123,7 @@ def main(
     param_space_plot_file=os.path.join(RESULTS_DIR, "fom_training_param_space.png"),
     save_param_space_plot=True,
     time_integrator=TIME_INTEGRATOR,
-    dt_multiplier=DT_MULTIPLIER,
+    fixed_dt=FIXED_DT,
     implicit_nonlinear_solver=IMPLICIT_NONLINEAR_SOLVER,
     implicit_max_iter=IMPLICIT_MAX_ITER,
     implicit_tol=IMPLICIT_TOL,
@@ -132,8 +132,8 @@ def main(
     limiter=LIMITER,
     riemann_flux=RIEMANN_FLUX,
     force_recompute=False,
-    solver_verbose=False,
-    solver_print_every=25,
+    solver_verbose=True,
+    solver_print_every=1,
 ):
     os.makedirs(snap_folder, exist_ok=True)
     os.makedirs(os.path.dirname(report_file), exist_ok=True)
@@ -177,7 +177,7 @@ def main(
     t_total0 = time.time()
     tag = solver_cache_tag(
         time_integrator=time_integrator,
-        dt_multiplier=dt_multiplier,
+        fixed_dt=fixed_dt,
         implicit_nonlinear_solver=implicit_nonlinear_solver,
         implicit_max_iter=implicit_max_iter,
         implicit_tol=implicit_tol,
@@ -205,7 +205,7 @@ def main(
             snap_folder=snap_folder,
             force_recompute=force_recompute,
             time_integrator=time_integrator,
-            dt_multiplier=dt_multiplier,
+            fixed_dt=fixed_dt,
             implicit_nonlinear_solver=implicit_nonlinear_solver,
             implicit_max_iter=implicit_max_iter,
             implicit_tol=implicit_tol,
@@ -270,7 +270,7 @@ def main(
         implicit_nonlinear_solver=np.asarray(str(implicit_nonlinear_solver)),
         limiter=np.asarray(str(limiter)),
         riemann_flux=np.asarray(str(riemann_flux)),
-        dt_multiplier=np.asarray(float(dt_multiplier), dtype=np.float64),
+        fixed_dt=np.asarray(float(fixed_dt), dtype=np.float64),
         implicit_max_iter=np.asarray(int(implicit_max_iter), dtype=np.int64),
         implicit_tol=np.asarray(float(implicit_tol), dtype=np.float64),
         implicit_relaxation=np.asarray(float(implicit_relaxation), dtype=np.float64),
@@ -301,7 +301,7 @@ def main(
                     ("implicit_nonlinear_solver", implicit_nonlinear_solver),
                     ("limiter", limiter),
                     ("riemann_flux", riemann_flux),
-                    ("dt_multiplier", dt_multiplier),
+                    ("fixed_dt", fixed_dt),
                     ("implicit_max_iter", implicit_max_iter),
                     ("implicit_tol", implicit_tol),
                     ("implicit_relaxation", implicit_relaxation),

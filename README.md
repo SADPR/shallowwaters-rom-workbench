@@ -41,9 +41,9 @@ python3 run_fom_explicit_vs_implict.py
 ```
 
 ## Why fixed sample times
-Even though the solver uses CFL-based state-dependent time steps internally, all saved
-trajectories are interpolated onto one shared `times` array. This keeps snapshot tensors
-consistent across parameters.
+The solver now uses a strict preselected fixed time step (`FIXED_DT`) for all
+time steps. Saved trajectories still use one shared `times` array, which keeps
+snapshot tensors consistent across parameters.
 
 ## Notes on burgers-style parity
 `shallow_waters/core.py` and `shallow_waters/solver.py` intentionally expose:
@@ -58,6 +58,8 @@ so downstream workflows can mirror the burgers structure with minimal renaming.
 ## Explicit vs implicit
 The current default in `shallow_waters/config.py` is:
 - `TIME_INTEGRATOR = "implicit_bdf2"`
+- `T_FINAL = 0.28`
+- `FIXED_DT = 2.8e-4`
 - `IMPLICIT_NONLINEAR_SOLVER = "newton_krylov"` (recommended)
 - `LIMITER = "mc"` (less diffusive than minmod)
 - `RIEMANN_FLUX = "hllc"` (sharper contact handling)
@@ -66,7 +68,7 @@ You can switch per run in both `run_fom.py` and `run_fom_training.py`:
 - `time_integrator="implicit_bdf2"`, `time_integrator="implicit_be"`, or `time_integrator="explicit_rk2"`
 - `limiter="mc"` or `limiter="minmod"`
 - `riemann_flux="hllc"` or `riemann_flux="hll"`
-- `dt_multiplier` (applies to CFL-based `dt`)
+- `fixed_dt` (constant time step, chosen before simulation)
 - implicit controls: `implicit_nonlinear_solver`, `implicit_max_iter`,
   `implicit_tol`, `implicit_relaxation`
 
@@ -76,8 +78,10 @@ Solver logs include step information and residual monitors:
 - implicit BDF2: residual `bdf2_res` + nonlinear iteration count per step
   (and Newton-Krylov linear-iteration diagnostics when enabled)
 
-The implicit solver uses a fixed CFL-based `dt` (scaled by `dt_multiplier`) and
-does not perform adaptive time-step retries.
+Default run scripts print step logs at every solver step (`solver_print_every=1`).
+
+Variable `dt` logic is disabled. The solver uses the same fixed `dt` at every
+step and requires `t_final / fixed_dt` to be an integer.
 
 Snapshot cache filenames include solver settings, so explicit and implicit runs
 are stored separately even at the same `(mu1, mu2)`.

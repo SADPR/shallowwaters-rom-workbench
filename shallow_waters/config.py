@@ -35,9 +35,10 @@ TIME_INTEGRATOR = "implicit_bdf2"
 LIMITER = "mc"
 RIEMANN_FLUX = "hllc"
 
-# Multiply CFL-based dt by this factor. Values > 1 can be useful with implicit BE.
-# No adaptive fallback is used; this factor is the only dt scaling knob.
-DT_MULTIPLIER = 1.0
+# Strict fixed time step used in every simulation step.
+# Variable/CFL-updated dt is intentionally disabled.
+# FIXED_DT must divide T_FINAL exactly.
+FIXED_DT = 2.8e-4
 
 # Implicit nonlinear solver controls (used for implicit_be / implicit_bdf2).
 IMPLICIT_MAX_ITER = 100

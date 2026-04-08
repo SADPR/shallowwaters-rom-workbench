@@ -15,7 +15,7 @@ import numpy as np
 from .config import (
     BC_TWO_BUMPS,
     CFL,
-    DT_MULTIPLIER,
+    FIXED_DT,
     G,
     H_FLOOR,
     IMPLICIT_MAX_ITER,
@@ -80,7 +80,7 @@ def get_snapshot_params(
 
 def solver_cache_tag(
     time_integrator=TIME_INTEGRATOR,
-    dt_multiplier=DT_MULTIPLIER,
+    fixed_dt=FIXED_DT,
     implicit_nonlinear_solver=IMPLICIT_NONLINEAR_SOLVER,
     implicit_max_iter=IMPLICIT_MAX_ITER,
     implicit_tol=IMPLICIT_TOL,
@@ -91,9 +91,16 @@ def solver_cache_tag(
     method = str(time_integrator).strip().lower()
     lim = str(limiter).strip().lower()
     flux = str(riemann_flux).strip().lower()
+    if fixed_dt is None:
+        raise ValueError(
+            "fixed_dt must be provided. Variable dt mode has been removed."
+        )
+    fixed_dt = float(fixed_dt)
+    if fixed_dt <= 0.0:
+        raise ValueError(f"fixed_dt must be > 0, got {fixed_dt}.")
     parts = [
         f"int_{method}",
-        f"dtmul_{float(dt_multiplier):.4f}",
+        f"fixeddt_{fixed_dt:.8e}",
         f"lim_{lim}",
         f"flux_{flux}",
     ]
@@ -213,7 +220,7 @@ def run_two_bumps_case(
     bc=None,
     sigma=SIGMA,
     time_integrator=TIME_INTEGRATOR,
-    dt_multiplier=DT_MULTIPLIER,
+    fixed_dt=FIXED_DT,
     implicit_nonlinear_solver=IMPLICIT_NONLINEAR_SOLVER,
     implicit_max_iter=IMPLICIT_MAX_ITER,
     implicit_tol=IMPLICIT_TOL,
@@ -247,7 +254,7 @@ def run_two_bumps_case(
         h_floor=h_floor,
         bc=bc,
         time_integrator=time_integrator,
-        dt_multiplier=dt_multiplier,
+        fixed_dt=fixed_dt,
         implicit_nonlinear_solver=implicit_nonlinear_solver,
         implicit_max_iter=implicit_max_iter,
         implicit_tol=implicit_tol,
@@ -280,7 +287,7 @@ def run_two_bumps_case(
         ),
         "limiter": str(sim.get("limiter", limiter)),
         "riemann_flux": str(sim.get("riemann_flux", riemann_flux)),
-        "dt_multiplier": float(sim.get("dt_multiplier", dt_multiplier)),
+        "fixed_dt": float(sim.get("fixed_dt", np.nan)),
         "implicit_max_iter": int(sim.get("implicit_max_iter", implicit_max_iter)),
         "implicit_tol": float(sim.get("implicit_tol", implicit_tol)),
         "implicit_relaxation": float(
@@ -340,9 +347,7 @@ def save_snapshot_bundle(path, case_data):
         ),
         limiter=np.asarray(case_data.get("limiter", LIMITER)),
         riemann_flux=np.asarray(case_data.get("riemann_flux", RIEMANN_FLUX)),
-        dt_multiplier=np.asarray(
-            case_data.get("dt_multiplier", DT_MULTIPLIER), dtype=np.float64
-        ),
+        fixed_dt=np.asarray(case_data.get("fixed_dt", np.nan), dtype=np.float64),
         implicit_max_iter=np.asarray(
             case_data.get("implicit_max_iter", IMPLICIT_MAX_ITER), dtype=np.int64
         ),
@@ -439,10 +444,10 @@ def load_snapshot_bundle(path):
                 if "riemann_flux" in data.files
                 else RIEMANN_FLUX
             ),
-            "dt_multiplier": (
-                float(np.asarray(data["dt_multiplier"]).item())
-                if "dt_multiplier" in data.files
-                else DT_MULTIPLIER
+            "fixed_dt": (
+                float(np.asarray(data["fixed_dt"]).item())
+                if "fixed_dt" in data.files
+                else np.nan
             ),
             "implicit_max_iter": (
                 int(np.asarray(data["implicit_max_iter"]).item())
@@ -496,7 +501,7 @@ def load_or_compute_snaps(
     sigma=SIGMA,
     force_recompute=False,
     time_integrator=TIME_INTEGRATOR,
-    dt_multiplier=DT_MULTIPLIER,
+    fixed_dt=FIXED_DT,
     implicit_nonlinear_solver=IMPLICIT_NONLINEAR_SOLVER,
     implicit_max_iter=IMPLICIT_MAX_ITER,
     implicit_tol=IMPLICIT_TOL,
@@ -515,7 +520,7 @@ def load_or_compute_snaps(
 
     solver_tag = solver_cache_tag(
         time_integrator=time_integrator,
-        dt_multiplier=dt_multiplier,
+        fixed_dt=fixed_dt,
         implicit_nonlinear_solver=implicit_nonlinear_solver,
         implicit_max_iter=implicit_max_iter,
         implicit_tol=implicit_tol,
@@ -556,7 +561,7 @@ def load_or_compute_snaps(
         bc=bc,
         sigma=sigma,
         time_integrator=time_integrator,
-        dt_multiplier=dt_multiplier,
+        fixed_dt=fixed_dt,
         implicit_nonlinear_solver=implicit_nonlinear_solver,
         implicit_max_iter=implicit_max_iter,
         implicit_tol=implicit_tol,
