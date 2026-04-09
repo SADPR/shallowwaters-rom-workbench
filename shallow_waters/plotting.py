@@ -4,6 +4,8 @@ Plotting utilities for shallow-water HDM workflows.
 These plots are designed to remain readable when comparing model variants.
 """
 
+import subprocess
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import animation
@@ -16,7 +18,25 @@ def nearest_indices(times, target_times):
     return [int(np.argmin(np.abs(times - t))) for t in target_times]
 
 
-def plot_depth_maps_grid(h_snapshots, times, lx, ly, out_path, title_prefix="", n_panels=6):
+def _resolve_h_limits(h_data, h_limits=None):
+    if h_limits is None:
+        return float(np.min(h_data)), float(np.max(h_data))
+    hmin, hmax = float(h_limits[0]), float(h_limits[1])
+    if hmax <= hmin:
+        raise ValueError(f"Invalid h_limits={h_limits}; require hmax > hmin.")
+    return hmin, hmax
+
+
+def plot_depth_maps_grid(
+    h_snapshots,
+    times,
+    lx,
+    ly,
+    out_path,
+    title_prefix="",
+    n_panels=6,
+    h_limits=None,
+):
     """
     Plot 2x3 top-view depth maps at representative times.
     """
@@ -29,8 +49,7 @@ def plot_depth_maps_grid(h_snapshots, times, lx, ly, out_path, title_prefix="", 
     if n_panels < 1:
         raise ValueError("n_panels must be >= 1.")
 
-    vmin_h = float(np.min(h_snapshots))
-    vmax_h = float(np.max(h_snapshots))
+    vmin_h, vmax_h = _resolve_h_limits(h_snapshots, h_limits=h_limits)
 
     nrows, ncols = 2, 3
     n_use = min(n_panels, nrows * ncols)
@@ -67,7 +86,15 @@ def plot_depth_maps_grid(h_snapshots, times, lx, ly, out_path, title_prefix="", 
     plt.close(fig)
 
 
-def plot_midline_spacetime(h_snapshots, x, y, times, out_path, title_prefix=""):
+def plot_midline_spacetime(
+    h_snapshots,
+    x,
+    y,
+    times,
+    out_path,
+    title_prefix="",
+    h_limits=None,
+):
     """
     Space-time maps along the two midlines:
       - h(x, y_mid, t)
@@ -86,8 +113,7 @@ def plot_midline_spacetime(h_snapshots, x, y, times, out_path, title_prefix=""):
     hx_t = h_snapshots[:, :, mid_y]      # [nt, nx]
     hy_t = h_snapshots[:, mid_x, :]      # [nt, ny]
 
-    vmin = float(np.min(h_snapshots))
-    vmax = float(np.max(h_snapshots))
+    vmin, vmax = _resolve_h_limits(h_snapshots, h_limits=h_limits)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
 
@@ -185,6 +211,62 @@ def _movie_frame_ids(nt, frame_stride=None):
     return frame_ids
 
 
+_FFMPEG_CODEC_CACHE = None
+
+
+def _select_ffmpeg_codec():
+    """
+    Select a video codec that is actually available in the current ffmpeg build.
+
+    Priority:
+      1) h264
+      2) libx264
+      3) mpeg4
+    """
+    global _FFMPEG_CODEC_CACHE
+    if _FFMPEG_CODEC_CACHE is not None:
+        return _FFMPEG_CODEC_CACHE
+
+    if not animation.writers.is_available("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg writer is not available in matplotlib. Install ffmpeg to enable MP4 export."
+        )
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    except Exception:
+        text = ""
+
+    available = set()
+    for line in text.splitlines():
+        tokens = line.split()
+        if len(tokens) >= 2 and tokens[0].startswith("V"):
+            available.add(tokens[1])
+
+    for codec in ("h264", "libx264", "mpeg4"):
+        if codec in available:
+            _FFMPEG_CODEC_CACHE = codec
+            return codec
+
+    # Fallback for minimal ffmpeg builds where encoder list parsing fails.
+    _FFMPEG_CODEC_CACHE = "mpeg4"
+    return _FFMPEG_CODEC_CACHE
+
+
+def _ffmpeg_writer(fps, bitrate):
+    return animation.FFMpegWriter(
+        fps=int(max(1, fps)),
+        bitrate=int(bitrate),
+        codec=_select_ffmpeg_codec(),
+    )
+
+
 def save_depth_movie_mp4(
     h_snapshots,
     times,
@@ -194,6 +276,7 @@ def save_depth_movie_mp4(
     fps=24,
     frame_stride=None,
     title_prefix="",
+    h_limits=None,
 ):
     """
     Save a 2D top-view depth animation as MP4 using ffmpeg.
@@ -213,8 +296,7 @@ def save_depth_movie_mp4(
     nt = h_snapshots.shape[0]
     frame_ids = _movie_frame_ids(nt, frame_stride=frame_stride)
 
-    vmin_h = float(np.min(h_snapshots))
-    vmax_h = float(np.max(h_snapshots))
+    vmin_h, vmax_h = _resolve_h_limits(h_snapshots, h_limits=h_limits)
 
     fig, ax = plt.subplots(figsize=(6.8, 5.5), constrained_layout=True)
     im = ax.imshow(
@@ -247,7 +329,7 @@ def save_depth_movie_mp4(
         interval=1000.0 / max(float(fps), 1.0),
         blit=False,
     )
-    writer = animation.FFMpegWriter(fps=int(max(1, fps)), bitrate=2200)
+    writer = _ffmpeg_writer(fps=fps, bitrate=2200)
     ani.save(out_path, writer=writer)
     plt.close(fig)
 
@@ -263,6 +345,7 @@ def save_depth_movie3d_mp4(
     elev=28.0,
     azim=-130.0,
     title_prefix="",
+    h_limits=None,
 ):
     """
     Save a 3D surface depth animation as MP4 using ffmpeg.
@@ -285,8 +368,7 @@ def save_depth_movie3d_mp4(
     frame_ids = _movie_frame_ids(nt, frame_stride=frame_stride)
     X, Y = np.meshgrid(x, y, indexing="ij")
 
-    zmin = float(np.min(h_snapshots))
-    zmax = float(np.max(h_snapshots))
+    zmin, zmax = _resolve_h_limits(h_snapshots, h_limits=h_limits)
 
     fig = plt.figure(figsize=(8.4, 6.2), constrained_layout=True)
     ax = fig.add_subplot(111, projection="3d")
@@ -326,7 +408,7 @@ def save_depth_movie3d_mp4(
         interval=1000.0 / max(float(fps), 1.0),
         blit=False,
     )
-    writer = animation.FFMpegWriter(fps=int(max(1, fps)), bitrate=2600)
+    writer = _ffmpeg_writer(fps=fps, bitrate=2600)
     ani.save(out_path, writer=writer)
     plt.close(fig)
 
@@ -342,6 +424,7 @@ def save_midline_slice_movie_mp4(
     title_prefix="",
     line_color="black",
     line_label="HDM",
+    h_limits=None,
 ):
     """
     Save an MP4 movie of 2D midline slices:
@@ -367,8 +450,7 @@ def save_midline_slice_movie_mp4(
     mid_x = x.size // 2
     mid_y = y.size // 2
 
-    ymin = float(np.min(h_snapshots))
-    ymax = float(np.max(h_snapshots))
+    ymin, ymax = _resolve_h_limits(h_snapshots, h_limits=h_limits)
 
     fig, (ax_x, ax_y) = plt.subplots(1, 2, figsize=(12.0, 4.8), constrained_layout=True)
     line_x = ax_x.plot(
@@ -419,7 +501,7 @@ def save_midline_slice_movie_mp4(
         interval=1000.0 / max(float(fps), 1.0),
         blit=False,
     )
-    writer = animation.FFMpegWriter(fps=int(max(1, fps)), bitrate=2200)
+    writer = _ffmpeg_writer(fps=fps, bitrate=2200)
     ani.save(out_path, writer=writer)
     plt.close(fig)
 
@@ -436,6 +518,7 @@ def save_midline_slice_comparison_movie_mp4(
     fps=24,
     frame_stride=None,
     title_prefix="",
+    h_limits=None,
 ):
     """
     Save an MP4 movie of 2D midline slice comparisons:
@@ -465,8 +548,11 @@ def save_midline_slice_comparison_movie_mp4(
     mid_x = x.size // 2
     mid_y = y.size // 2
 
-    ymin = float(min(np.min(h_ref), np.min(h_model)))
-    ymax = float(max(np.max(h_ref), np.max(h_model)))
+    if h_limits is None:
+        ymin = float(min(np.min(h_ref), np.min(h_model)))
+        ymax = float(max(np.max(h_ref), np.max(h_model)))
+    else:
+        ymin, ymax = _resolve_h_limits(h_ref, h_limits=h_limits)
 
     fig, (ax_x, ax_y) = plt.subplots(1, 2, figsize=(12.0, 4.8), constrained_layout=True)
     line_x_ref = ax_x.plot(
@@ -527,6 +613,6 @@ def save_midline_slice_comparison_movie_mp4(
         interval=1000.0 / max(float(fps), 1.0),
         blit=False,
     )
-    writer = animation.FFMpegWriter(fps=int(max(1, fps)), bitrate=2200)
+    writer = _ffmpeg_writer(fps=fps, bitrate=2200)
     ani.save(out_path, writer=writer)
     plt.close(fig)

@@ -42,8 +42,10 @@ python3 run_fom_explicit_vs_implict.py
 
 ## Why fixed sample times
 The solver now uses a strict preselected fixed time step (`FIXED_DT`) for all
-time steps. Saved trajectories still use one shared `times` array, which keeps
-snapshot tensors consistent across parameters.
+time steps. Snapshot storage is aligned with this and now keeps **all** fixed-dt
+states (including `t=0` and `t=t_final`), i.e. `num_snapshots = t_final/fixed_dt + 1`.
+Saved trajectories still use one shared `times` array, which keeps snapshot
+tensors consistent across parameters.
 
 ## Notes on burgers-style parity
 `shallow_waters/core.py` and `shallow_waters/solver.py` intentionally expose:
@@ -83,8 +85,10 @@ Default run scripts print step logs at every solver step (`solver_print_every=1`
 Variable `dt` logic is disabled. The solver uses the same fixed `dt` at every
 step and requires `t_final / fixed_dt` to be an integer.
 
-Snapshot cache filenames include solver settings, so explicit and implicit runs
-are stored separately even at the same `(mu1, mu2)`.
+Training snapshot cache filenames are flat and burgers-style:
+`Results/param_snaps/mu1_..._mu2_....npy`.
+For explicit-vs-implicit comparison, method-specific cache folders are used
+under `Results/explicit_vs_implict/param_snaps_compare` to avoid overwrite.
 
 ## Plotting
 `run_fom.py` now saves by default on every run:

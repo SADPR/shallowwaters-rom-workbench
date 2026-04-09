@@ -57,13 +57,24 @@ LY = 1.0
 
 # Final simulation time and stored snapshot times.
 T_FINAL = 0.28
-NUM_TIME_SAMPLES = 141
+# Store every fixed-dt state, including initial condition at t=0.
+_N_FIXED_STEPS_DEFAULT = int(round(T_FINAL / FIXED_DT))
+if abs((_N_FIXED_STEPS_DEFAULT * FIXED_DT) - T_FINAL) > 1e-12 * max(abs(T_FINAL), 1.0):
+    raise ValueError(
+        f"FIXED_DT={FIXED_DT:.12e} does not divide T_FINAL={T_FINAL:.12e}. "
+        "Set FIXED_DT so T_FINAL/FIXED_DT is an integer."
+    )
+NUM_TIME_SAMPLES = _N_FIXED_STEPS_DEFAULT + 1
 
 # Two-bump parameterized initial condition.
 BASE_DEPTH = 1.0
 LEFT_CENTER = (0.30, 0.50)
 RIGHT_CENTER = (0.70, 0.50)
 SIGMA = 0.045
+
+# Global plotting limits for h (used across static figures and videos).
+PLOT_H_MIN = 0.975
+PLOT_H_MAX = 1.15
 
 # Parameter box used for training snapshot generation.
 MU1_RANGE = (0.06, 0.14)
@@ -121,3 +132,24 @@ def get_sample_times(t_final=T_FINAL, num_time_samples=NUM_TIME_SAMPLES):
     if n < 2:
         raise ValueError(f"num_time_samples must be >= 2, got {n}.")
     return np.linspace(0.0, float(t_final), n)
+
+
+def get_fixed_step_sample_times(t_final=T_FINAL, fixed_dt=FIXED_DT):
+    """
+    Snapshot times at every fixed step, including t=0 and t=t_final.
+    """
+    t_final = float(t_final)
+    fixed_dt = float(fixed_dt)
+    if fixed_dt <= 0.0:
+        raise ValueError(f"fixed_dt must be > 0, got {fixed_dt}.")
+    n_steps = int(round(t_final / fixed_dt))
+    if n_steps < 1:
+        raise ValueError(
+            f"fixed_dt={fixed_dt} is too large for t_final={t_final}."
+        )
+    if abs((n_steps * fixed_dt) - t_final) > 1e-12 * max(abs(t_final), 1.0):
+        raise ValueError(
+            f"fixed_dt={fixed_dt:.12e} does not divide t_final={t_final:.12e}. "
+            "Choose fixed_dt so t_final/fixed_dt is an integer."
+        )
+    return np.linspace(0.0, t_final, n_steps + 1)

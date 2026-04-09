@@ -32,6 +32,8 @@ from shallow_waters.config import (
     NUM_TIME_SAMPLES,
     NX,
     NY,
+    PLOT_H_MAX,
+    PLOT_H_MIN,
     RIEMANN_FLUX,
     RESULTS_DIR,
     SNAP_FOLDER,
@@ -91,13 +93,25 @@ def _save_mass_comparison(times, mass_exp, mass_imp, out_path, implicit_label):
     plt.close(fig)
 
 
-def _save_final_state_comparison(h_exp, h_imp, lx, ly, out_path, implicit_label):
+def _save_final_state_comparison(
+    h_exp,
+    h_imp,
+    lx,
+    ly,
+    out_path,
+    implicit_label,
+    h_limits=None,
+):
     h_exp = np.asarray(h_exp, dtype=np.float64)
     h_imp = np.asarray(h_imp, dtype=np.float64)
     diff = h_imp - h_exp
 
-    vmin = float(min(np.min(h_exp), np.min(h_imp)))
-    vmax = float(max(np.max(h_exp), np.max(h_imp)))
+    if h_limits is None:
+        vmin = float(min(np.min(h_exp), np.min(h_imp)))
+        vmax = float(max(np.max(h_exp), np.max(h_imp)))
+    else:
+        vmin = float(h_limits[0])
+        vmax = float(h_limits[1])
     dmax = float(np.max(np.abs(diff)))
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.8), constrained_layout=True)
@@ -133,7 +147,16 @@ def _save_final_state_comparison(h_exp, h_imp, lx, ly, out_path, implicit_label)
     plt.close(fig)
 
 
-def _save_slice_comparison(h_exp, h_imp, x, y, times, out_path, implicit_label):
+def _save_slice_comparison(
+    h_exp,
+    h_imp,
+    x,
+    y,
+    times,
+    out_path,
+    implicit_label,
+    h_limits=None,
+):
     """
     Save 4x2 slice comparison figure:
       - column 1: x-midline slices
@@ -179,6 +202,9 @@ def _save_slice_comparison(h_exp, h_imp, x, y, times, out_path, implicit_label):
         ax_y.set_ylabel(f"t={times[k]:.3f}\nh")
         ax_x.grid(True, alpha=0.35)
         ax_y.grid(True, alpha=0.35)
+        if h_limits is not None:
+            ax_x.set_ylim(float(h_limits[0]), float(h_limits[1]))
+            ax_y.set_ylim(float(h_limits[0]), float(h_limits[1]))
 
         if row == 0:
             ax_x.set_title(f"x-slice: h(x, y={y[mid_y]:.3f})")
@@ -229,9 +255,16 @@ def main(
     force_recompute=False,
     solver_verbose=True,
     solver_print_every=10,
+    plot_h_min=PLOT_H_MIN,
+    plot_h_max=PLOT_H_MAX,
 ):
     os.makedirs(results_dir, exist_ok=True)
     os.makedirs(snap_folder, exist_ok=True)
+    compare_cache_dir = os.path.join(results_dir, "param_snaps_compare")
+    exp_snap_folder = os.path.join(compare_cache_dir, "explicit_rk2")
+    imp_snap_folder = os.path.join(compare_cache_dir, str(implicit_time_integrator).strip().lower())
+    os.makedirs(exp_snap_folder, exist_ok=True)
+    os.makedirs(imp_snap_folder, exist_ok=True)
 
     mu = [float(mu1), float(mu2)]
     mu_tag = _format_mu(mu1, mu2)
@@ -259,7 +292,7 @@ def main(
         h_floor=h_floor,
         t_final=t_final,
         num_time_samples=num_time_samples,
-        snap_folder=snap_folder,
+        snap_folder=exp_snap_folder,
         force_recompute=force_recompute,
         time_integrator="explicit_rk2",
         fixed_dt=explicit_fixed_dt,
@@ -282,7 +315,7 @@ def main(
         h_floor=h_floor,
         t_final=t_final,
         num_time_samples=num_time_samples,
-        snap_folder=snap_folder,
+        snap_folder=imp_snap_folder,
         force_recompute=force_recompute,
         time_integrator=implicit_time_integrator,
         fixed_dt=implicit_fixed_dt,
@@ -297,6 +330,14 @@ def main(
         print_every=solver_print_every,
     )
     elapsed_imp = time.time() - t0
+    sim_elapsed_exp = float(case_exp.get("simulation_elapsed_seconds", np.nan))
+    sim_elapsed_imp = float(case_imp.get("simulation_elapsed_seconds", np.nan))
+    if not np.isfinite(sim_elapsed_exp):
+        sim_elapsed_exp = float(elapsed_exp)
+    if not np.isfinite(sim_elapsed_imp):
+        sim_elapsed_imp = float(elapsed_imp)
+    exp_from_cache = bool(case_exp.get("from_cache", False))
+    imp_from_cache = bool(case_imp.get("from_cache", False))
 
     times = np.asarray(case_exp["times"], dtype=np.float64)
     if not np.allclose(times, np.asarray(case_imp["times"], dtype=np.float64)):
@@ -323,8 +364,11 @@ def main(
     )
 
     print(
-        f"[COMPARE] elapsed explicit={elapsed_exp:.3e}s | implicit={elapsed_imp:.3e}s | "
-        f"speed_ratio(imp/exp)={elapsed_imp/max(elapsed_exp,1e-14):.3f}"
+        f"[COMPARE] elapsed explicit={sim_elapsed_exp:.3e}s "
+        f"(load={elapsed_exp:.3e}s, source={'cache' if exp_from_cache else 'new_compute'}) | "
+        f"implicit={sim_elapsed_imp:.3e}s "
+        f"(load={elapsed_imp:.3e}s, source={'cache' if imp_from_cache else 'new_compute'}) | "
+        f"speed_ratio(imp/exp)={sim_elapsed_imp/max(sim_elapsed_exp,1e-14):.3f}"
     )
     print(
         f"[COMPARE] implicit-vs-explicit relative L2(h): "
@@ -381,6 +425,7 @@ def main(
             ly=case_exp["ly"],
             out_path=final_cmp_path,
             implicit_label=implicit_label,
+            h_limits=(plot_h_min, plot_h_max),
         )
 
         if save_slices:
@@ -393,6 +438,7 @@ def main(
                 times=times,
                 out_path=slices_cmp_path,
                 implicit_label=implicit_label,
+                h_limits=(plot_h_min, plot_h_max),
             )
 
         if save_movie_mp4:
@@ -407,6 +453,7 @@ def main(
                     fps=movie_fps,
                     frame_stride=movie_frame_stride,
                     title_prefix=f"explicit_rk2 {mu_tag}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 movie2d_imp_path = os.path.join(results_dir, f"movie2d_implicit_{mu_tag}.mp4")
                 save_depth_movie_mp4(
@@ -418,6 +465,7 @@ def main(
                     fps=movie_fps,
                     frame_stride=movie_frame_stride,
                     title_prefix=f"{implicit_label} {mu_tag}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
             except RuntimeError as exc:
                 movie2d_exp_path = None
@@ -440,6 +488,7 @@ def main(
                     fps=movie_fps,
                     frame_stride=movie_frame_stride,
                     title_prefix=f"Slice comparison {mu_tag}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 print(
                     f"[COMPARE] 2D slice comparison MP4 movie saved to: {movie2d_slices_cmp_path}"
@@ -462,6 +511,7 @@ def main(
                     elev=movie3d_elev,
                     azim=movie3d_azim,
                     title_prefix=f"explicit_rk2 {mu_tag}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 movie3d_imp_path = os.path.join(results_dir, f"movie3d_implicit_{mu_tag}.mp4")
                 save_depth_movie3d_mp4(
@@ -475,6 +525,7 @@ def main(
                     elev=movie3d_elev,
                     azim=movie3d_azim,
                     title_prefix=f"{implicit_label} {mu_tag}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
             except RuntimeError as exc:
                 movie3d_exp_path = None
@@ -513,14 +564,23 @@ def main(
                     ("save_slices", save_slices),
                     ("save_movie_mp4", save_movie_mp4),
                     ("save_movie3d_mp4", save_movie3d_mp4),
+                    ("plot_h_min", plot_h_min),
+                    ("plot_h_max", plot_h_max),
                 ],
             ),
             (
                 "timing",
                 [
-                    ("elapsed_explicit_seconds", elapsed_exp),
-                    ("elapsed_implicit_seconds", elapsed_imp),
-                    ("speed_ratio_imp_over_exp", elapsed_imp / max(elapsed_exp, 1e-14)),
+                    ("elapsed_explicit_seconds", sim_elapsed_exp),
+                    ("elapsed_implicit_seconds", sim_elapsed_imp),
+                    ("load_elapsed_explicit_seconds", elapsed_exp),
+                    ("load_elapsed_implicit_seconds", elapsed_imp),
+                    (
+                        "speed_ratio_imp_over_exp",
+                        sim_elapsed_imp / max(sim_elapsed_exp, 1e-14),
+                    ),
+                    ("explicit_loaded_from_cache", exp_from_cache),
+                    ("implicit_loaded_from_cache", imp_from_cache),
                 ],
             ),
             (

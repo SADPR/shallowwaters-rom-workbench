@@ -36,7 +36,7 @@ from .config import (
     SNAP_FOLDER,
     TIME_INTEGRATOR,
     T_FINAL,
-    get_sample_times,
+    get_fixed_step_sample_times,
     make_grid,
 )
 from .scenarios import two_bumps_collision_initial_state
@@ -117,22 +117,17 @@ def solver_cache_tag(
 def param_to_snap_fn(
     mu,
     snap_folder=SNAP_FOLDER,
-    suffix=".npz",
+    suffix=".npy",
     solver_tag=None,
 ):
     """
     Snapshot filename associated with parameter vector mu=[mu1, mu2].
-
-    The filename also includes a solver-tag so explicit/implicit runs are cached
-    separately.
     """
     mu = np.asarray(mu, dtype=np.float64).reshape(-1)
     if mu.size != 2:
         raise ValueError(f"Expected 2 parameters [mu1, mu2], got {mu.size}.")
 
-    if solver_tag is None:
-        solver_tag = solver_cache_tag()
-    filename = f"mu1_{mu[0]:.8f}+mu2_{mu[1]:.8f}+{solver_tag}{suffix}"
+    filename = f"mu1_{mu[0]:.3f}_mu2_{mu[1]:.3f}{suffix}"
     return os.path.join(snap_folder, filename)
 
 
@@ -140,7 +135,7 @@ def get_saved_params(snap_folder=SNAP_FOLDER):
     """
     Set of existing cached snapshot files in snap_folder.
     """
-    return set(glob.glob(os.path.join(snap_folder, "*.npz")))
+    return set(glob.glob(os.path.join(snap_folder, "**", "*.npy"), recursive=True))
 
 
 def _build_initial_state_for_mu(mu, grid, sigma=SIGMA):
@@ -232,7 +227,9 @@ def run_two_bumps_case(
     print_every=10,
 ):
     """
-    Run one HDM case for parameter mu=[mu1, mu2] and return sampled snapshots.
+    Run one HDM case for parameter mu=[mu1, mu2].
+
+    Snapshots are stored at every fixed time step (including t=0).
     """
     if bc is None:
         bc = dict(BC_TWO_BUMPS)
@@ -240,7 +237,13 @@ def run_two_bumps_case(
         bc = dict(bc)
 
     grid = make_grid(nx=nx, ny=ny, lx=lx, ly=ly)
-    sample_times = get_sample_times(t_final=t_final, num_time_samples=num_time_samples)
+    sample_times = get_fixed_step_sample_times(t_final=t_final, fixed_dt=fixed_dt)
+    n_all_samples = int(sample_times.size)
+    if num_time_samples is not None and int(num_time_samples) != n_all_samples and verbose:
+        print(
+            f"[HDM] num_time_samples={int(num_time_samples)} ignored. "
+            f"Using all fixed-dt snapshots: {n_all_samples}."
+        )
     U0 = _build_initial_state_for_mu(mu=mu, grid=grid, sigma=sigma)
 
     sim = simulate_with_sampling(
@@ -306,6 +309,10 @@ def run_two_bumps_case(
         "cfl": float(cfl),
         "h_floor": float(h_floor),
         "t_final": float(t_final),
+        "num_time_samples_requested": (
+            int(num_time_samples) if num_time_samples is not None else None
+        ),
+        "num_time_samples_stored": int(sample_times.size),
         "sigma": float(sigma),
         "bc_x_low": str(bc["x_low"]),
         "bc_x_high": str(bc["x_high"]),
@@ -316,74 +323,161 @@ def run_two_bumps_case(
 
 def save_snapshot_bundle(path, case_data):
     """
-    Persist one case dictionary to disk as npz.
+    Persist one case dictionary to disk as .npy (dict payload).
     """
-    np.savez(
-        path,
-        mu=np.asarray(case_data["mu"], dtype=np.float64),
-        state_snapshots=np.asarray(case_data["state_snapshots"], dtype=np.float64),
-        times=np.asarray(case_data["times"], dtype=np.float64),
-        solver_times=np.asarray(case_data["solver_times"], dtype=np.float64),
-        solver_mass=np.asarray(case_data["solver_mass"], dtype=np.float64),
-        step_residuals=np.asarray(case_data["step_residuals"], dtype=np.float64),
-        nonlinear_iterations=np.asarray(
+    out = {
+        "mu": np.asarray(case_data["mu"], dtype=np.float64),
+        "state_snapshots": np.asarray(case_data["state_snapshots"], dtype=np.float64),
+        "times": np.asarray(case_data["times"], dtype=np.float64),
+        "solver_times": np.asarray(case_data["solver_times"], dtype=np.float64),
+        "solver_mass": np.asarray(case_data["solver_mass"], dtype=np.float64),
+        "step_residuals": np.asarray(case_data["step_residuals"], dtype=np.float64),
+        "nonlinear_iterations": np.asarray(
             case_data.get("nonlinear_iterations", []), dtype=np.int64
         ),
-        linear_iterations=np.asarray(
+        "linear_iterations": np.asarray(
             case_data.get("linear_iterations", []), dtype=np.int64
         ),
-        line_search_reductions=np.asarray(
+        "line_search_reductions": np.asarray(
             case_data.get("line_search_reductions", []), dtype=np.int64
         ),
-        nonlinear_converged=np.asarray(
+        "nonlinear_converged": np.asarray(
             case_data.get("nonlinear_converged", []), dtype=np.int64
         ),
-        num_solver_steps=np.asarray(case_data["num_solver_steps"], dtype=np.int64),
-        time_integrator=np.asarray(
-            case_data.get("time_integrator", TIME_INTEGRATOR)
-        ),
-        implicit_nonlinear_solver=np.asarray(
+        "num_solver_steps": int(case_data["num_solver_steps"]),
+        "time_integrator": str(case_data.get("time_integrator", TIME_INTEGRATOR)),
+        "implicit_nonlinear_solver": str(
             case_data.get("implicit_nonlinear_solver", IMPLICIT_NONLINEAR_SOLVER)
         ),
-        limiter=np.asarray(case_data.get("limiter", LIMITER)),
-        riemann_flux=np.asarray(case_data.get("riemann_flux", RIEMANN_FLUX)),
-        fixed_dt=np.asarray(case_data.get("fixed_dt", np.nan), dtype=np.float64),
-        implicit_max_iter=np.asarray(
-            case_data.get("implicit_max_iter", IMPLICIT_MAX_ITER), dtype=np.int64
+        "limiter": str(case_data.get("limiter", LIMITER)),
+        "riemann_flux": str(case_data.get("riemann_flux", RIEMANN_FLUX)),
+        "fixed_dt": float(case_data.get("fixed_dt", np.nan)),
+        "implicit_max_iter": int(case_data.get("implicit_max_iter", IMPLICIT_MAX_ITER)),
+        "implicit_tol": float(case_data.get("implicit_tol", IMPLICIT_TOL)),
+        "implicit_relaxation": float(
+            case_data.get("implicit_relaxation", IMPLICIT_RELAXATION)
         ),
-        implicit_tol=np.asarray(
-            case_data.get("implicit_tol", IMPLICIT_TOL), dtype=np.float64
+        "implicit_nonconverged_steps": int(
+            case_data.get("implicit_nonconverged_steps", 0)
         ),
-        implicit_relaxation=np.asarray(
-            case_data.get("implicit_relaxation", IMPLICIT_RELAXATION), dtype=np.float64
+        "nx": int(case_data["nx"]),
+        "ny": int(case_data["ny"]),
+        "lx": float(case_data["lx"]),
+        "ly": float(case_data["ly"]),
+        "dx": float(case_data["dx"]),
+        "dy": float(case_data["dy"]),
+        "x": np.asarray(case_data["x"], dtype=np.float64),
+        "y": np.asarray(case_data["y"], dtype=np.float64),
+        "g": float(case_data["g"]),
+        "cfl": float(case_data["cfl"]),
+        "h_floor": float(case_data["h_floor"]),
+        "t_final": float(case_data["t_final"]),
+        "num_time_samples_requested": (
+            int(case_data["num_time_samples_requested"])
+            if case_data.get("num_time_samples_requested") is not None
+            else -1
         ),
-        implicit_nonconverged_steps=np.asarray(
-            case_data.get("implicit_nonconverged_steps", 0), dtype=np.int64
+        "num_time_samples_stored": int(
+            case_data.get(
+                "num_time_samples_stored",
+                np.asarray(case_data["state_snapshots"], dtype=np.float64).shape[1],
+            )
         ),
-        nx=np.asarray(case_data["nx"], dtype=np.int64),
-        ny=np.asarray(case_data["ny"], dtype=np.int64),
-        lx=np.asarray(case_data["lx"], dtype=np.float64),
-        ly=np.asarray(case_data["ly"], dtype=np.float64),
-        dx=np.asarray(case_data["dx"], dtype=np.float64),
-        dy=np.asarray(case_data["dy"], dtype=np.float64),
-        x=np.asarray(case_data["x"], dtype=np.float64),
-        y=np.asarray(case_data["y"], dtype=np.float64),
-        g=np.asarray(case_data["g"], dtype=np.float64),
-        cfl=np.asarray(case_data["cfl"], dtype=np.float64),
-        h_floor=np.asarray(case_data["h_floor"], dtype=np.float64),
-        t_final=np.asarray(case_data["t_final"], dtype=np.float64),
-        sigma=np.asarray(case_data["sigma"], dtype=np.float64),
-        bc_x_low=np.asarray(case_data["bc_x_low"]),
-        bc_x_high=np.asarray(case_data["bc_x_high"]),
-        bc_y_low=np.asarray(case_data["bc_y_low"]),
-        bc_y_high=np.asarray(case_data["bc_y_high"]),
-    )
+        "sigma": float(case_data["sigma"]),
+        "bc_x_low": str(case_data["bc_x_low"]),
+        "bc_x_high": str(case_data["bc_x_high"]),
+        "bc_y_low": str(case_data["bc_y_low"]),
+        "bc_y_high": str(case_data["bc_y_high"]),
+        "simulation_elapsed_seconds": float(
+            case_data.get("simulation_elapsed_seconds", np.nan)
+        ),
+    }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    np.save(path, out, allow_pickle=True)
 
 
 def load_snapshot_bundle(path):
     """
-    Load one cached npz snapshot file and normalize types.
+    Load one cached snapshot file (.npy dict payload or legacy .npz) and normalize types.
     """
+    if path.endswith(".npy"):
+        data = np.load(path, allow_pickle=True)
+        data = data.item() if hasattr(data, "item") else data
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Expected dict payload in {path}, got type={type(data).__name__}."
+            )
+        nonlinear_converged = np.asarray(
+            data.get("nonlinear_converged", []), dtype=np.int64
+        )
+        implicit_nonconverged_steps = int(
+            data.get("implicit_nonconverged_steps", np.sum(nonlinear_converged == 0))
+        )
+        return {
+            "mu": np.asarray(data["mu"], dtype=np.float64),
+            "state_snapshots": np.asarray(data["state_snapshots"], dtype=np.float64),
+            "times": np.asarray(data["times"], dtype=np.float64),
+            "solver_times": np.asarray(data["solver_times"], dtype=np.float64),
+            "solver_mass": np.asarray(data["solver_mass"], dtype=np.float64),
+            "step_residuals": np.asarray(data.get("step_residuals", []), dtype=np.float64),
+            "nonlinear_iterations": np.asarray(
+                data.get("nonlinear_iterations", []), dtype=np.int64
+            ),
+            "linear_iterations": np.asarray(
+                data.get("linear_iterations", []), dtype=np.int64
+            ),
+            "line_search_reductions": np.asarray(
+                data.get("line_search_reductions", []), dtype=np.int64
+            ),
+            "nonlinear_converged": nonlinear_converged,
+            "num_solver_steps": int(data["num_solver_steps"]),
+            "time_integrator": str(data.get("time_integrator", TIME_INTEGRATOR)),
+            "implicit_nonlinear_solver": str(
+                data.get("implicit_nonlinear_solver", IMPLICIT_NONLINEAR_SOLVER)
+            ),
+            "limiter": str(data.get("limiter", LIMITER)),
+            "riemann_flux": str(data.get("riemann_flux", RIEMANN_FLUX)),
+            "fixed_dt": float(data.get("fixed_dt", np.nan)),
+            "implicit_max_iter": int(data.get("implicit_max_iter", IMPLICIT_MAX_ITER)),
+            "implicit_tol": float(data.get("implicit_tol", IMPLICIT_TOL)),
+            "implicit_relaxation": float(
+                data.get("implicit_relaxation", IMPLICIT_RELAXATION)
+            ),
+            "implicit_nonconverged_steps": implicit_nonconverged_steps,
+            "nx": int(data["nx"]),
+            "ny": int(data["ny"]),
+            "lx": float(data["lx"]),
+            "ly": float(data["ly"]),
+            "dx": float(data["dx"]),
+            "dy": float(data["dy"]),
+            "x": np.asarray(data["x"], dtype=np.float64),
+            "y": np.asarray(data["y"], dtype=np.float64),
+            "g": float(data["g"]),
+            "cfl": float(data["cfl"]),
+            "h_floor": float(data["h_floor"]),
+            "t_final": float(data["t_final"]),
+            "num_time_samples_requested": (
+                None
+                if int(data.get("num_time_samples_requested", -1)) < 0
+                else int(data.get("num_time_samples_requested", -1))
+            ),
+            "num_time_samples_stored": int(
+                data.get(
+                    "num_time_samples_stored",
+                    np.asarray(data["state_snapshots"], dtype=np.float64).shape[1],
+                )
+            ),
+            "sigma": float(data["sigma"]),
+            "bc_x_low": str(data["bc_x_low"]),
+            "bc_x_high": str(data["bc_x_high"]),
+            "bc_y_low": str(data["bc_y_low"]),
+            "bc_y_high": str(data["bc_y_high"]),
+            "simulation_elapsed_seconds": float(
+                data.get("simulation_elapsed_seconds", np.nan)
+            ),
+        }
+
+    # Legacy .npz support.
     with np.load(path, allow_pickle=False) as data:
         nonlinear_converged = (
             np.asarray(data["nonlinear_converged"], dtype=np.int64)
@@ -477,11 +571,26 @@ def load_snapshot_bundle(path):
             "cfl": float(np.asarray(data["cfl"]).item()),
             "h_floor": float(np.asarray(data["h_floor"]).item()),
             "t_final": float(np.asarray(data["t_final"]).item()),
+            "num_time_samples_requested": (
+                int(np.asarray(data["num_time_samples_requested"]).item())
+                if "num_time_samples_requested" in data.files
+                else None
+            ),
+            "num_time_samples_stored": (
+                int(np.asarray(data["num_time_samples_stored"]).item())
+                if "num_time_samples_stored" in data.files
+                else int(np.asarray(data["state_snapshots"]).shape[1])
+            ),
             "sigma": float(np.asarray(data["sigma"]).item()),
             "bc_x_low": str(np.asarray(data["bc_x_low"]).item()),
             "bc_x_high": str(np.asarray(data["bc_x_high"]).item()),
             "bc_y_low": str(np.asarray(data["bc_y_low"]).item()),
             "bc_y_high": str(np.asarray(data["bc_y_high"]).item()),
+            "simulation_elapsed_seconds": (
+                float(np.asarray(data["simulation_elapsed_seconds"]).item())
+                if "simulation_elapsed_seconds" in data.files
+                else np.nan
+            ),
         }
 
 
@@ -518,31 +627,33 @@ def load_or_compute_snaps(
     if not os.path.exists(snap_folder):
         os.makedirs(snap_folder, exist_ok=True)
 
-    solver_tag = solver_cache_tag(
-        time_integrator=time_integrator,
-        fixed_dt=fixed_dt,
-        implicit_nonlinear_solver=implicit_nonlinear_solver,
-        implicit_max_iter=implicit_max_iter,
-        implicit_tol=implicit_tol,
-        implicit_relaxation=implicit_relaxation,
-        limiter=limiter,
-        riemann_flux=riemann_flux,
-    )
-    snap_fn = param_to_snap_fn(mu, snap_folder=snap_folder, solver_tag=solver_tag)
+    snap_fn = param_to_snap_fn(mu, snap_folder=snap_folder)
+    os.makedirs(os.path.dirname(snap_fn), exist_ok=True)
 
     if os.path.exists(snap_fn) and not force_recompute:
         print(f"Loading saved snaps for mu1={mu[0]}, mu2={mu[1]}")
         cached = load_snapshot_bundle(snap_fn)
-        if str(time_integrator).strip().lower().startswith("implicit_"):
-            nonconv = int(cached.get("implicit_nonconverged_steps", 0))
-            if nonconv > 0:
-                print(
-                    f"Cached implicit run had {nonconv} non-converged steps. "
-                    "Recomputing with current strict settings."
-                )
-            else:
-                return cached
+        expected_n = int(
+            get_fixed_step_sample_times(t_final=t_final, fixed_dt=fixed_dt).size
+        )
+        cached_n = int(np.asarray(cached["state_snapshots"], dtype=np.float64).shape[1])
+        if cached_n != expected_n:
+            print(
+                f"Cached snapshot count ({cached_n}) does not match fixed-dt "
+                f"requirement ({expected_n}). Recomputing."
+            )
         else:
+            nonconv = int(cached.get("implicit_nonconverged_steps", 0))
+            if (
+                str(cached.get("time_integrator", time_integrator)).strip().lower().startswith("implicit_")
+                and nonconv > 0
+            ):
+                print(
+                    f"[WARN] Cached implicit run has {nonconv} non-converged steps. "
+                    "Using cached data (set force_recompute=True to recompute)."
+                )
+            cached["from_cache"] = True
+            cached["snapshot_path"] = snap_fn
             return cached
 
     print(f"Computing new snaps for mu1={mu[0]}, mu2={mu[1]}")
@@ -572,7 +683,11 @@ def load_or_compute_snaps(
         verbose=verbose,
         print_every=print_every,
     )
-    print(f"Elapsed time: {time.time() - t0:3.3e}")
+    sim_elapsed = float(time.time() - t0)
+    case["simulation_elapsed_seconds"] = sim_elapsed
+    case["from_cache"] = False
+    case["snapshot_path"] = snap_fn
+    print(f"Elapsed time: {sim_elapsed:3.3e}")
     save_snapshot_bundle(snap_fn, case)
     return case
 
@@ -587,6 +702,7 @@ def plot_snaps(
     linestyle="solid",
     label=None,
     fig_ax=None,
+    h_limits=None,
 ):
     """
     Plot h midline slices (x-mid and y-mid), mirroring burgers.plot_snaps.
@@ -621,6 +737,8 @@ def plot_snaps(
         ax1.set_xlabel("x")
         ax1.set_ylabel(f"h(x, y={y[mid_y]:0.3f})")
         ax1.grid(True, alpha=0.3)
+        if h_limits is not None:
+            ax1.set_ylim(float(h_limits[0]), float(h_limits[1]))
 
         ax2.plot(
             y,
@@ -633,6 +751,8 @@ def plot_snaps(
         ax2.set_xlabel("y")
         ax2.set_ylabel(f"h(x={x[mid_x]:0.3f}, y)")
         ax2.grid(True, alpha=0.3)
+        if h_limits is not None:
+            ax2.set_ylim(float(h_limits[0]), float(h_limits[1]))
 
     return fig, ax1, ax2
 

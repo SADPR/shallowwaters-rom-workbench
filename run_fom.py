@@ -28,6 +28,8 @@ from shallow_waters.config import (
     NUM_TIME_SAMPLES,
     NX,
     NY,
+    PLOT_H_MAX,
+    PLOT_H_MIN,
     RIEMANN_FLUX,
     RESULTS_DIR,
     SNAP_FOLDER,
@@ -84,6 +86,8 @@ def main(
     force_recompute=False,
     solver_verbose=True,
     solver_print_every=1,
+    plot_h_min=PLOT_H_MIN,
+    plot_h_max=PLOT_H_MAX,
 ):
     os.makedirs(results_dir, exist_ok=True)
     os.makedirs(snap_folder, exist_ok=True)
@@ -117,6 +121,10 @@ def main(
         print_every=solver_print_every,
     )
     elapsed = time.time() - t0
+    simulation_elapsed = float(case.get("simulation_elapsed_seconds", np.nan))
+    if not np.isfinite(simulation_elapsed):
+        simulation_elapsed = float(elapsed)
+    from_cache = bool(case.get("from_cache", False))
 
     state_snaps = np.asarray(case["state_snapshots"], dtype=np.float64)
     times = np.asarray(case["times"], dtype=np.float64)
@@ -143,7 +151,10 @@ def main(
     )
     solver_method = str(case.get("time_integrator", time_integrator))
 
-    print(f"Elapsed HDM time: {elapsed:.3e} seconds")
+    print(
+        f"Elapsed HDM time: {simulation_elapsed:.3e} seconds "
+        f"(source={'cache' if from_cache else 'new_compute'})"
+    )
     print(f"Snapshot matrix shape: {state_snaps.shape}")
     print(f"Stored time samples: {times.size}")
     print(f"Time integrator: {solver_method}")
@@ -213,6 +224,7 @@ def main(
                 f"Shallow-water HDM maps (mu1={mu[0]:.3f}, mu2={mu[1]:.3f})"
             ),
             n_panels=6,
+            h_limits=(plot_h_min, plot_h_max),
         )
         print(f"HDM depth maps saved to: {fig_maps_path}")
 
@@ -229,6 +241,7 @@ def main(
             title_prefix=(
                 f"Space-time midlines (mu1={mu[0]:.3f}, mu2={mu[1]:.3f})"
             ),
+            h_limits=(plot_h_min, plot_h_max),
         )
         print(f"HDM space-time plot saved to: {fig_spacetime_path}")
 
@@ -250,6 +263,8 @@ def main(
                 ax_y.set_ylabel(f"t={times[idx]:.3f}\nh")
                 ax_x.grid(True, alpha=0.35)
                 ax_y.grid(True, alpha=0.35)
+                ax_x.set_ylim(float(plot_h_min), float(plot_h_max))
+                ax_y.set_ylim(float(plot_h_min), float(plot_h_max))
 
                 if row == 0:
                     ax_x.set_title(f"x-slice: h(x, y={y[mid_y]:.3f})")
@@ -284,6 +299,7 @@ def main(
                     fps=movie_fps,
                     frame_stride=movie_frame_stride,
                     title_prefix=f"HDM mu1={mu[0]:.3f}, mu2={mu[1]:.3f}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 print(f"HDM 2D MP4 movie saved to: {movie_2d_mp4_path}")
             except RuntimeError as exc:
@@ -306,6 +322,7 @@ def main(
                     title_prefix=f"HDM slices mu1={mu[0]:.3f}, mu2={mu[1]:.3f}",
                     line_color="black",
                     line_label="HDM",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 print(f"HDM 2D slice MP4 movie saved to: {movie_slices_2d_mp4_path}")
             except RuntimeError as exc:
@@ -329,6 +346,7 @@ def main(
                     elev=movie3d_elev,
                     azim=movie3d_azim,
                     title_prefix=f"HDM mu1={mu[0]:.3f}, mu2={mu[1]:.3f}",
+                    h_limits=(plot_h_min, plot_h_max),
                 )
                 print(f"HDM 3D MP4 movie saved to: {movie_3d_mp4_path}")
             except RuntimeError as exc:
@@ -391,7 +409,11 @@ def main(
                     ("force_recompute", force_recompute),
                     ("solver_verbose", solver_verbose),
                     ("solver_print_every", solver_print_every),
+                    ("plot_h_min", plot_h_min),
+                    ("plot_h_max", plot_h_max),
                     ("snap_folder", snap_folder),
+                    ("snapshot_path", case.get("snapshot_path")),
+                    ("loaded_from_cache", from_cache),
                 ],
             ),
             (
@@ -415,10 +437,12 @@ def main(
             (
                 "fom_timing",
                 [
-                    ("total_hdm_time_seconds", elapsed),
+                    ("total_hdm_time_seconds", simulation_elapsed),
+                    ("simulation_elapsed_seconds", simulation_elapsed),
+                    ("load_or_compute_elapsed_seconds", elapsed),
                     (
                         "avg_hdm_time_per_solver_step_seconds",
-                        elapsed / max(int(case["num_solver_steps"]), 1),
+                        simulation_elapsed / max(int(case["num_solver_steps"]), 1),
                     ),
                 ],
             ),
@@ -506,7 +530,7 @@ def main(
         ],
     )
     print(f"FOM text summary saved to: {report_path}")
-    return elapsed, case
+    return simulation_elapsed, case
 
 
 if __name__ == "__main__":
