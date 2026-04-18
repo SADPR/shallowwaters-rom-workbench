@@ -1,0 +1,57 @@
+[run]
+timestamp: 2026-04-09T05:25:30
+script: run_fom_training.py
+
+[configuration]
+snap_folder: Results/param_snaps
+mu1_range: (0.06, 0.14)
+mu2_range: (0.06, 0.14)
+samples_per_mu: 3
+nx: 180
+ny: 180
+t_final: 2.80000000e-01
+num_time_samples: 141
+time_integrator: implicit_bdf2
+implicit_nonlinear_solver: newton_krylov
+limiter: mc
+riemann_flux: hllc
+fixed_dt: 2.80000000e-04
+implicit_max_iter: 100
+implicit_tol: 1.00000000e-06
+implicit_relaxation: 1.00000000e+00
+implicit_verbose_iters: False
+solver_verbose: True
+solver_print_every: 1
+save_param_space_plot: True
+param_space_plot_file: Results/fom_training_param_space.png
+training_visuals_dir: Results/fom_training_visuals
+save_case_maps: True
+save_case_spacetime: True
+save_case_slices: True
+save_case_movie_mp4: True
+save_case_slice_movie_mp4: True
+save_case_movie3d_mp4: True
+case_movie_fps: 20
+case_movie_frame_stride: N/A
+case_movie3d_elev: 2.80000000e+01
+case_movie3d_azim: -1.30000000e+02
+plot_h_min: 9.75000000e-01
+plot_h_max: 1.15000000e+00
+
+[results]
+num_loaded_from_cache: 0
+num_computed_new: 9
+total_time_seconds: 3.15145524e+03
+total_load_or_compute_seconds: 5.68206054e+03
+mean_time_per_parameter_seconds: 3.50161693e+02
+max_time_per_parameter_seconds: 3.66687800e+02
+min_time_per_parameter_seconds: 3.39848399e+02
+mean_load_or_compute_seconds: 3.50366775e+02
+snapshot_shape_example: [97200, 141]
+mean_solver_steps: 1.00000000e+03
+
+[outputs]
+metadata_npz: Results/fom_training_metadata.npz
+summary_txt: Results/fom_training_summary.txt
+param_space_plot_png: Results/fom_training_param_space.png
+training_visuals_dir: Results/fom_training_visuals
